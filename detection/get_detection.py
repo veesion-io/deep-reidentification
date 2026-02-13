@@ -46,7 +46,7 @@ IMAGE_EXT = [".jpg", ".jpeg", ".webp", ".bmp", ".png"]
 
 def make_parser():
     parser = argparse.ArgumentParser("BoT-SORT Demo!")
-    parser.add_argument("--scene", type=int, default=88,help='scene number')
+    parser.add_argument("--scene", type=str, default="88",help='scene number or scene directory name')
     #parser.add_argument("demo", default="image", help="demo type, eg. image, video and webcam")
     parser.add_argument("-expn", "--experiment-name", type=str, default=None)
     parser.add_argument("-n", "--name", type=str, default=None, help="model name")
@@ -172,14 +172,15 @@ def image_demo(predictor, vis_folder, current_time, args,scene):
     current_file_path = os.path.abspath(__file__)
     path_arr = current_file_path.split('/')[:-2]
     root_path = '/'.join(path_arr)
-    input = osp.join(root_path,'dataset/test','scene_0'+"{:02d}".format(scene))
-    out_path = osp.join(root_path,'result/detection','scene_0'+"{:02d}".format(scene))
+    scene_name = 'scene_0'+"{:02d}".format(scene) if isinstance(scene, int) else scene
+    input = osp.join(root_path,'dataset/test', scene_name)
+    out_path = osp.join(root_path,'result/detection', scene_name)
     
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
     cameras = sorted(os.listdir(input))
-    scale = min(800/1080,1440/1920)
+    scale = None  # will be set per-camera from actual video resolution
     
     def preproc_worker(img):
         return preproc(img, predictor.test_size, predictor.rgb_means, predictor.std)
@@ -193,6 +194,9 @@ def image_demo(predictor, vis_folder, current_time, args,scene):
         print(cam)
         video_path = osp.join(input,cam,'video.mp4')
         cap = cv2.VideoCapture(video_path)
+        vid_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        vid_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        scale = min(800/vid_h, 1440/vid_w)
         timer = Timer()
         memory_bank = []
         id_bank = []
@@ -319,7 +323,7 @@ def main(exp, args,scene):
     predictor = Predictor(model, exp, trt_file, decoder, args.device, args.fp16,args.batchsize)
     current_time = time.localtime()
     
-    image_demo(predictor, None, current_time, args,scene)
+    image_demo(predictor, None, current_time, args, scene)
 
 
 if __name__ == "__main__":
@@ -329,4 +333,5 @@ if __name__ == "__main__":
     args.ablation = False
     args.mot20 = not args.fuse_score
 
-    main(exp, args,args.scene)
+    scene = int(args.scene) if args.scene.isdigit() else args.scene
+    main(exp, args, scene)

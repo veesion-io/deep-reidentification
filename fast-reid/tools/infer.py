@@ -109,7 +109,11 @@ def main():
     scenes = [s for s in scenes if s[0]=="s"]
     scenes = scenes[args.start:args.end]
 
-    reid=torch.load('../ckpt_weight/aic24.pkl',map_location='cpu').cuda().eval()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    reid=torch.load('../ckpt_weight/aic24.pkl',map_location=device)
+    if device == 'cuda':
+        reid = reid.cuda()
+    reid = reid.eval()
     reid_model = reid_inferencer(reid)
 
 
@@ -161,8 +165,7 @@ def main():
                 # dets = det_annot[line_idx:line_idx+num_det]
                 bboxes_s = dets[:,2:7] #x1y1x2y2s
                 #preprocess detection
-                screen_width = 1920
-                screen_height = 1080
+                screen_height, screen_width = video[0].shape[:2]
 
                 x1 = bboxes_s[:, 0]
                 y1 = bboxes_s[:, 1]
