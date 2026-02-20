@@ -1,0 +1,33 @@
+# Ignore Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore model weights
+ckpt_weight/
+*.pt
+*.pth
+*.pth.tar
+*.pkl
+
+# Ignore dataset and output directories
+dataset/test/
+videos/
+collated_tmp/
+result/
+track_log/
+
+# Ignore compiled C/C++ extensions
+track/aic_cpp/build/
+*.so
+*.egg-info/
+
+# Ignore third-party repositories
+SOLIDER-REID/
+
+# Ignore log files
+*.log
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
