@@ -40,8 +40,7 @@ def prepare(videos_dir: Path = VIDEOS_DIR, dataset_dir: Path = DATASET_DIR) -> N
         if p.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}
     )
     if not video_files:
-        print(f"No video files found in {videos_dir}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"No video files found in {videos_dir}")
 
     print(f"Found {len(video_files)} videos:")
     calibration = make_identity_calibration()

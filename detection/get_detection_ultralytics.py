@@ -29,34 +29,31 @@ def make_parser():
     return parser
 
 
-def main():
-    args = make_parser().parse_args()
-
+def run_detection_inference(scene="scene_001", ckpt="yolo26m_people_detector.pt", device="cuda:0", conf=0.1, batchsize=1, camera=None):
     current_file_path = os.path.abspath(__file__)
     path_arr = current_file_path.split("/")[:-2]
     root_path = "/".join(path_arr)
 
-    scene_name = args.scene
+    scene_name = scene
     input_dir = osp.join(root_path, "dataset/test", scene_name)
     out_path = osp.join(root_path, "result/detection", scene_name)
     os.makedirs(out_path, exist_ok=True)
 
-    device = args.device
     if device == "gpu":
         device = "cuda:0"
 
-    model = YOLO(args.ckpt)
-    print(f"Loaded model from {args.ckpt}")
+    model = YOLO(ckpt)
+    print(f"Loaded model from {ckpt}")
 
     cameras = sorted(
         d for d in os.listdir(input_dir)
         if d.startswith("camera_")
     )
-    if args.camera:
-        if args.camera in cameras:
-            cameras = [args.camera]
+    if camera:
+        if camera in cameras:
+            cameras = [camera]
         else:
-            print(f"ERROR: camera {args.camera} not found in {input_dir}")
+            print(f"ERROR: camera {camera} not found in {input_dir}")
             sys.exit(1)
 
     for cam in cameras:
@@ -71,7 +68,7 @@ def main():
         frame_id = 0
         pbar = tqdm(desc=cam)
         
-        batch_size = args.batchsize
+        batch_size = batchsize
         batch_frames = []
         batch_ids = []
 
@@ -88,7 +85,7 @@ def main():
                 preds = model.predict(
                     batch_frames,
                     device=device,
-                    conf=args.conf,
+                    conf=conf,
                     verbose=False,
                 )
 
@@ -126,6 +123,11 @@ def main():
             for row in results_list:
                 f.write("{},{},{},{},{},{},{}\n".format(*row))
         print(f"  Wrote {len(results_list)} detections to {output_file}")
+
+
+def main():
+    args = make_parser().parse_args()
+    run_detection_inference(args.scene, args.ckpt, args.device, args.conf, args.batchsize, args.camera)
 
 
 if __name__ == "__main__":

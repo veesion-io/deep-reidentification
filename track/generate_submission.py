@@ -5,23 +5,18 @@ import numpy as np
 from tqdm import tqdm
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate final track.txt from scene track files.")
-    parser.add_argument("--scene", type=str, default=None,
-                        help="Scene name to generate submission for (default: all scenes)")
-    args = parser.parse_args()
-
+def run_generate_submission(scene=None):
     result_dir = "result/track"
     save_dir = "result"
     os.makedirs(save_dir, exist_ok=True)
 
-    if args.scene:
+    if scene:
         # Single scene mode — look for <scene>.txt
-        scene_file = osp.join(result_dir, args.scene + ".txt")
+        scene_file = osp.join(result_dir, scene + ".txt")
         if not osp.exists(scene_file):
             print(f"ERROR: Track file not found: {scene_file}")
             return
-        scenes = [args.scene + ".txt"]
+        scenes = [scene + ".txt"]
     else:
         # All scenes — find all .txt files (excluding _tracklets files)
         scenes = sorted([s for s in os.listdir(result_dir)
@@ -45,6 +40,13 @@ def main():
     np.savetxt(osp.join(save_dir, "track.txt"), results, fmt="%d %d %d %d %d %d %d %f %f")
     print(f"Generated {save_dir}/track.txt with {len(results)} detections from {len(files)} scene(s)")
 
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate final track.txt from scene track files.")
+    parser.add_argument("--scene", type=str, default=None,
+                        help="Scene name to generate submission for (default: all scenes)")
+    args = parser.parse_args()
+    run_generate_submission(args.scene)
 
 if __name__ == "__main__":
     main()

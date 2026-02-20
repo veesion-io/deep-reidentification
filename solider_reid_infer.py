@@ -148,28 +148,17 @@ class SOLIDERReIDInferencer:
         return feats.cpu().numpy()
 
 
-def main():
-    parser = ArgumentParser()
-    parser.add_argument("--start", type=int, default=0)
-    parser.add_argument("--end", type=int, default=-1)
-    parser.add_argument("--batch-size", type=int, default=64,
-                        help="Batch size for feature extraction")
-    parser.add_argument("--camera", type=str, default=None,
-                        help="Process a single camera (used by reid_parallel.py)")
-    parser.add_argument("--scene", type=str, default=None,
-                        help="Process a single scene (used by reid_parallel.py)")
-    args = parser.parse_args()
-
+def run_reid_inference(scene=None, camera=None, start=0, end=-1, batch_size=64):
     det_root = os.path.join(ROOT_PATH, "result/detection")
     vid_root = os.path.join(ROOT_PATH, "dataset/test")
     save_root = os.path.join(ROOT_PATH, "result/reid")
 
-    if args.scene:
-        scenes = [args.scene]
+    if scene:
+        scenes = [scene]
     else:
         scenes = sorted(os.listdir(det_root))
         scenes = [s for s in scenes if not s.startswith(".")]
-        scenes = scenes[args.start : args.end if args.end != -1 else None]
+        scenes = scenes[start : end if end != -1 else None]
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     weight_path = os.path.join(ROOT_PATH, "transformer_100.pth")
@@ -178,19 +167,19 @@ def main():
     inferencer = SOLIDERReIDInferencer(model, cfg, device)
     print(f"Model loaded successfully. Feature dim: {FEAT_DIM}")
 
-    for scene in tqdm(scenes, desc="Scenes"):
-        print(scene)
-        det_dir = os.path.join(det_root, scene)
-        vid_dir = os.path.join(vid_root, scene)
-        save_dir = os.path.join(save_root, scene)
+    for s in tqdm(scenes, desc="Scenes"):
+        print(s)
+        det_dir = os.path.join(det_root, s)
+        vid_dir = os.path.join(vid_root, s)
+        save_dir = os.path.join(save_root, s)
         cams = os.listdir(vid_dir)
         cams = sorted([c for c in cams if c[0] == "c" or c.startswith("camera_")])
 
         os.makedirs(save_dir, exist_ok=True)
 
-        # If --camera is specified, process only that camera
-        if args.camera:
-            cams = [args.camera]
+        # If camera is specified, process only that camera
+        if camera:
+            cams = [camera]
 
         print(f"  {len(cams)} cameras")
         for cam in tqdm(cams, desc="Cameras"):
@@ -237,8 +226,8 @@ def main():
                 # Process in batches
                 n = len(bboxes)
                 batch_feats = []
-                for i in range(0, n, args.batch_size):
-                    batch = bboxes[i : i + args.batch_size]
+                for i in range(0, n, batch_size):
+                    batch = bboxes[i : i + batch_size]
                     feats = inferencer.process_frame(frame, batch)
                     batch_feats.append(feats)
                 feat_combined = np.concatenate(batch_feats, axis=0)
@@ -251,6 +240,23 @@ def main():
 
             np.save(save_path, all_results)
             print(f"    Saved {save_path}: {all_results.shape}")
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--end", type=int, default=-1)
+    parser.add_argument("--batch-size", type=int, default=64,
+                        help="Batch size for feature extraction")
+    parser.add_argument("--camera", type=str, default=None,
+                        help="Process a single camera (used by reid_parallel.py)")
+    parser.add_argument("--scene", type=str, default=None,
+                        help="Process a single scene (used by reid_parallel.py)")
+    args = parser.parse_args()
+    
+    run_reid_inference(args.scene, args.camera, args.start, args.end, args.batch_size)
+
+
 
 
 if __name__ == "__main__":

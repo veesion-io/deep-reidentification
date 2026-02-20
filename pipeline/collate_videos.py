@@ -57,11 +57,63 @@ def collate_camera(cam_dir):
         if concat_list_path.exists():
             concat_list_path.unlink()
 
+def collate_all_cameras(source_dir: str | Path, dest_dir: str | Path) -> None:
+    source_path = Path(source_dir)
+    dest_path = Path(dest_dir)
+    
+    # Clear destination directory (optional but recommended in plan)
+    if dest_path.exists():
+        print(f"Clearing existing videos in {dest_path}...")
+        for f in dest_path.glob("*.mp4"):
+            f.unlink()
+    else:
+        dest_path.mkdir(parents=True, exist_ok=True)
+
+    cameras = [d for d in source_path.iterdir() if d.is_dir()]
+    results = []
+
+    for cam_dir in cameras:
+        output_file, start_time = collate_camera(cam_dir)
+        if output_file:
+            results.append({
+                "path": output_file,
+                "start_time": start_time,
+                "name": cam_dir.name
+            })
+
+    if not results:
+        print("No videos were collated.")
+        return
+
+    # Sync Filtering
+    start_times = [r["start_time"] for r in results]
+    median_start = statistics.median(start_times)
+    
+    print(f"Median start time: {median_start}")
+    
+    synced_results = []
+    for r in results:
+        diff = abs(r["start_time"] - median_start)
+        if diff > SYNC_THRESHOLD_SEC:
+            print(f"Discarding {r['name']} - out of sync by {diff:.1f}s")
+            r["path"].unlink()
+        else:
+            synced_results.append(r)
+
+    # Move to final destination
+    for r in synced_results:
+        final_path = dest_path / f"{r['name']}.mp4"
+        shutil.move(str(r["path"]), str(final_path))
+        print(f"Finalized: {final_path.name}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collate video chunks into single camera videos.")
     parser.add_argument("--source", type=str, default=DEFAULT_SOURCE_DIR, help="Source directory containing camera folders.")
     parser.add_argument("--dest", type=str, default=DEST_DIR, help="Destination directory for collated videos.")
     args = parser.parse_args()
+
+    collate_all_cameras(args.source, args.dest)
 
     source_path = Path(args.source)
     dest_path = Path(args.dest)

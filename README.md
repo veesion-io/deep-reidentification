@@ -2,6 +2,51 @@
 
 This repository contains the Veesion multi-camera tracking pipeline. The primary purpose of this codebase is to process store camera videos to perform multi-camera people tracking, object detection, ReID feature extraction, and track visualization.
 
+## Online Service Pipeline
+
+The repository has been adapted to be usable in an online fashion, executing live in the cloud on a continuous instance. It is designed to receive a request containing an S3 videos directory and a JSON payload, and then perform the following steps:
+
+1. **Download Data**: Download all video data from the specified S3 directory. The directory contains multiple folders (one for each camera from a store), and each folder contains multiple chunks of videos.
+   
+   **Expected S3 Directory Layout:**
+   ```
+   s3://your-bucket/.../<store-directory>/
+   ├── camera_0001/
+   │   ├── chunk_0000.mp4
+   │   ├── chunk_0001.mp4
+   │   └── ...
+   ├── camera_0002/
+   │   ├── chunk_0000.mp4
+   │   └── ...
+   ```
+2. **Collate Videos**: Collate the video chunks into full videos, carefully preserving their original timestamp information.
+3. **Run Core Models**: Execute the object detection, multi-camera tracking, and ReID models on the collated videos.
+4. **Identify Query Track**: Use the provided JSON, which contains the info of the track of the person to be tracked across multiple cameras. The specific track is identified based on spatio-temporal IOU with our generated tracks.
+
+   **Expected JSON Format for Query Track:**
+   ```json
+   {
+     "camera": "camera_0001",
+     "track": [
+       {
+         "frame_id": 10,
+         "bbox": [100, 200, 50, 150]
+       },
+       {
+         "frame_id": 11,
+         "bbox": [110, 205, 50, 150]
+       }
+     ]
+   }
+   ```
+   *(Note: The `bbox` format is `[x, y, w, h]`)*
+
+5. **Semi-Automatic Matching**: Run multi-camera matching in a semi-automatic fashion. This returns a list of potential pairs associated with the query track, ordered by decreasing likelihood (for all pairs with a ReID score above 0.5).
+6. **Generate Video Pairs**: For each potential pair, generate a pair video (using minimal computation) comparing the query track (left) and the candidate track (right), with bounding box visualizations.
+7. **Human Annotation (Tier Service)**: Send the generated video pairs to a tier service (TBD) and synchronously await human annotation confirming or rejecting the pairs.
+8. **Construct Final Timeline**: Once all pairs are annotated, build the complete, continuous video timeline of the query track from start to finish. If the person appears in multiple videos simultaneously, the video feeds are collated side-by-side without deformation (e.g., jumping between cameras or showing split screens when overlapping).
+9. **Client Alerting**: Send the final timeline video to another service for client alerting (TBD).
+
 ## Environment & Setup
 
 Ensure you are running on a machine with Python 3, PyTorch, and a CUDA-compatible GPU.

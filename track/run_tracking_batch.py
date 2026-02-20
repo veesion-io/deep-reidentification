@@ -7,15 +7,23 @@ import cv2
 import json
 import numpy as np
 import sys
+
+# Ensure PoseTrack root is in path before internal imports
+current_file_path = os.path.abspath(__file__)
+repo_root = os.path.abspath(osp.join(current_file_path, "../.."))
+track_dir = os.path.abspath(osp.join(current_file_path, ".."))
+
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+if track_dir not in sys.path:
+    sys.path.insert(0, track_dir)
+
 from util.camera import Camera
 from Tracker.PoseTracker import Detection_Sample, PoseTracker,TrackState
 from tqdm import tqdm
 import copy
 
-def main():
-    scene_name = sys.argv[1]
-    no_reid_merge = '--no-reid-merge' in sys.argv
-    
+def run_tracking_inference(scene_name, no_reid_merge=False):
     current_file_path = os.path.abspath(__file__)
     path_arr = current_file_path.split('/')[:-2]
     root_path = '/'.join(path_arr)
