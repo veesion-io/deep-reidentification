@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE = Path("/home/veesion/hq_cameras")
 
 
@@ -60,7 +60,7 @@ def process_store(store_dir: Path) -> dict:
     # ── Step 0: Collate camera chunks → videos/<store_name>/ ─────────────
     banner(f"[{store_name}] Step 0: Collate videos")
     run([
-        sys.executable, "collate_videos.py",
+        sys.executable, "pipeline/collate_videos.py",
         "--source", str(store_dir),
         "--dest", str(videos_dir),
     ])
@@ -75,7 +75,7 @@ def process_store(store_dir: Path) -> dict:
     # ── Steps 1-6: Full pipeline (scene = store_name) ────────────────────
     banner(f"[{store_name}] Steps 1-6: Full pipeline")
     run([
-        sys.executable, "run_pipeline.py",
+        sys.executable, "pipeline/run_pipeline.py",
         "--scene", store_name,
         "--videos-dir", str(videos_dir),
     ])
@@ -87,7 +87,7 @@ def process_store(store_dir: Path) -> dict:
     # ── Mosaic visualisation → result/<store_name>/mosaic_tracks.mp4 ────
     banner(f"[{store_name}] Step 7: Mosaic visualisation")
     run([
-        sys.executable, "visualize_mosaic.py",
+        sys.executable, "pipeline/visualize_mosaic.py",
         "--videos-dir", str(videos_dir),
         "--track-file", str(track_final),
         "--output", str(mosaic_output),

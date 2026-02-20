@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SCENE_NAME = "scene_001"
 
 
@@ -21,7 +21,7 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
 
 def step_prepare(videos_dir: str | None = None, scene: str = DEFAULT_SCENE_NAME) -> None:
     print("\n[1/6] Preparing dataset structure...")
-    cmd = [sys.executable, "prepare_data.py", "--scene", scene]
+    cmd = [sys.executable, "pipeline/prepare_data.py", "--scene", scene]
     if videos_dir:
         cmd += ["--videos-dir", videos_dir]
     run(cmd)

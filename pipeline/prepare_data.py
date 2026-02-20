@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 VIDEOS_DIR = REPO_ROOT / "videos"
 DATASET_DIR = REPO_ROOT / "dataset" / "test" / "scene_001"
 

@@ -21,7 +21,7 @@ from tqdm import tqdm
 from ultralytics import YOLO
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = str(REPO_ROOT / "yolo26m_people_detector.pt")
 MIN_CHUNK_SIZE = 1000  # bytes – skip tiny/corrupt chunks
 

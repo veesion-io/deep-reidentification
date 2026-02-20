@@ -43,7 +43,7 @@ def _probe_fps(video_path: Path) -> float | None:
     return None
 
 # ── Configuration ────────────────────────────────────────────────────────────
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
 DATASET_DIR = REPO_ROOT / "dataset" / "test" / "scene_001"
 TRACK_FILE = REPO_ROOT / "result" / "track.txt"
 OUTPUT_FILE = REPO_ROOT / "result" / "mosaic_tracks.mp4"
