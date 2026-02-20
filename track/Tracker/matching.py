@@ -48,7 +48,7 @@ def linear_assignment(cost_matrix, thresh):
     matches = np.asarray(matches)
     return matches, unmatched_a, unmatched_b, x, y
 def myiou(atracks,btracks):
-    ious = np.zeros((len(atracks), len(btracks)), dtype=np.float)
+    ious = np.zeros((len(atracks), len(btracks)), dtype=np.float64)
     if ious.size == 0:
         return ious
     if (len(atracks)>0 and isinstance(atracks[0], np.ndarray)) or (len(btracks) > 0 and isinstance(btracks[0], np.ndarray)):
@@ -57,8 +57,8 @@ def myiou(atracks,btracks):
     else:
         altrbs = [track.ltrb for track in atracks]
         bltrbs = [track.ltrb for track in btracks]
-    bbox_p=np.ascontiguousarray(altrbs, dtype=np.float)
-    bbox_g=np.ascontiguousarray(bltrbs, dtype=np.float)
+    bbox_p=np.ascontiguousarray(altrbs, dtype=np.float64)
+    bbox_g=np.ascontiguousarray(bltrbs, dtype=np.float64)
     
     pl,pt,pr,pb=bbox_p[:,0:1],bbox_p[:,1:2],bbox_p[:,2:3],bbox_p[:,3:4]
     gl,gt,gr,gb=bbox_g[:,0][None,:],bbox_g[:,1][None,:],bbox_g[:,2][None,:],bbox_g[:,3][None,:]
@@ -69,8 +69,8 @@ def myiou(atracks,btracks):
     union=(pr-pl)*(pb-pt)+(gr-gl)*(gb-gt)
     return 1-union/outer/2
 def Giou_np(bbox_p, bbox_g):
-    bbox_p=np.ascontiguousarray(bbox_p, dtype=np.float)
-    bbox_g=np.ascontiguousarray(bbox_g, dtype=np.float)
+    bbox_p=np.ascontiguousarray(bbox_p, dtype=np.float64)
+    bbox_g=np.ascontiguousarray(bbox_g, dtype=np.float64)
     x1p = np.minimum(bbox_p[:, 0], bbox_p[:, 2]).reshape(-1,1)
     x2p = np.maximum(bbox_p[:, 0], bbox_p[:, 2]).reshape(-1,1)
     y1p = np.minimum(bbox_p[:, 1], bbox_p[:, 3]).reshape(-1,1)
@@ -100,13 +100,13 @@ def ious(altrbs, bltrbs):
 
     :rtype ious np.ndarray
     """
-    ious = np.zeros((len(altrbs), len(bltrbs)), dtype=np.float)
+    ious = np.zeros((len(altrbs), len(bltrbs)), dtype=np.float64)
     if ious.size == 0:
         return ious
 
     ious = bbox_ious(
-        np.ascontiguousarray(altrbs, dtype=np.float),
-        np.ascontiguousarray(bltrbs, dtype=np.float)
+        np.ascontiguousarray(altrbs, dtype=np.float64),
+        np.ascontiguousarray(bltrbs, dtype=np.float64)
     )
 
     return ious
@@ -131,9 +131,9 @@ def bboxes_ciou(tracks1,tracks2):
     else:
         ltrbs1 = [track.ltrb for track in tracks1]
         ltrbs2 = [track.ltrb for track in tracks2]
-    boxes1=np.ascontiguousarray(ltrbs1, dtype=np.float)
-    boxes2=np.ascontiguousarray(ltrbs2, dtype=np.float)
-    ious = np.zeros((len(boxes1), len(boxes2)), dtype=np.float)
+    boxes1=np.ascontiguousarray(ltrbs1, dtype=np.float64)
+    boxes2=np.ascontiguousarray(ltrbs2, dtype=np.float64)
+    ious = np.zeros((len(boxes1), len(boxes2)), dtype=np.float64)
     if ious.size == 0:
         return ious
 
@@ -222,13 +222,13 @@ def embedding_distance(tracks, detections, metric='cosine'):
     :return: cost_matrix np.ndarray
     """
 
-    cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float)
+    cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float64)
     if cost_matrix.size == 0:
         return cost_matrix
-    det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float)
+    det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float64)
     #for i, track in enumerate(tracks):
         #cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
-    track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float)
+    track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float64)
     cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # Nomalized features
     return cost_matrix
 

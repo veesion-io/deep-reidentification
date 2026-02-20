@@ -9,12 +9,17 @@ import numpy as np
 
 from loguru import logger
 
-sys.path.append('detection')
+_det_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _det_dir)
 
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("utils.timer", os.path.join(_det_dir, "utils", "timer.py"))
+_timer_mod = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_timer_mod)
+Timer = _timer_mod.Timer
 from yolox.exp import get_exp
 from yolox.utils import fuse_model, get_model_info, postprocess
 from yolox.utils.visualize import plot_tracking
-from utils.timer import Timer
 from tqdm import tqdm
 
 

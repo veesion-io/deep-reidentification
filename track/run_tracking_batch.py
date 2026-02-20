@@ -14,13 +14,13 @@ import copy
 
 def main():
     scene_name = sys.argv[1]
+    no_reid_merge = '--no-reid-merge' in sys.argv
     
     current_file_path = os.path.abspath(__file__)
     path_arr = current_file_path.split('/')[:-2]
     root_path = '/'.join(path_arr)
     
     det_dir = osp.join(root_path,"result/detection", scene_name)
-    pose_dir = osp.join(root_path,"result/pose", scene_name)
     reid_dir = osp.join(root_path,"result/reid", scene_name)
     
     cal_dir = osp.join(root_path,'dataset/test', scene_name)
@@ -31,33 +31,34 @@ def main():
     #     exit()
     
     cams = sorted(os.listdir(cal_dir))
+    cams = [c for c in cams if c.startswith("camera_")]
     cals = []
     for cam in cams:
         cals.append(Camera(osp.join(cal_dir,cam,"calibration.json")))
 
     det_data=[]
-    files = sorted(os.listdir(det_dir))
-    files = [f for f in files if f[0]=='c']
-    for f in files:
-        if f[0]=='c':       
-            det_data.append(np.loadtxt(osp.join(det_dir,f), delimiter=","))
-    
-    pose_data=[]
-    files = sorted(os.listdir(pose_dir))
-    files = [f for f in files if f[0]=='c']
-    for f in files:
-        pose_data.append(np.loadtxt(osp.join(pose_dir,f)))
+    reid_data=[]
+    for cam in cams:
+        # Detection
+        det_path = osp.join(det_dir, cam + ".txt")
+        if osp.exists(det_path):
+            d = np.loadtxt(det_path, delimiter=",")
+            if d.ndim < 2:
+                d = np.zeros((0, 7))
+        else:
+            d = np.zeros((0, 7))
+        det_data.append(d)
 
-    reid_data = []
-    files = sorted(os.listdir(reid_dir))
-    files = [f for f in files if f[0]=='c']
-    for f in files:
-        reid_data_scene=np.load(osp.join(reid_dir,f),mmap_mode='r')
-       
-        if len(reid_data_scene):
-            reid_data_scene=reid_data_scene/np.linalg.norm(reid_data_scene, axis=1,keepdims=True)
+        # ReID
+        reid_path = osp.join(reid_dir, cam + ".npy")
+        if osp.exists(reid_path):
+            reid_data_scene = np.load(reid_path, mmap_mode='r')
+            if len(reid_data_scene):
+                reid_data_scene = reid_data_scene / np.linalg.norm(reid_data_scene, axis=1, keepdims=True)
+        else:
+            reid_data_scene = np.zeros((0, 1024))
         reid_data.append(reid_data_scene)
-    
+
     print("reading finish")
 
     
@@ -67,7 +68,10 @@ def main():
             max_frame.append(np.max(det_sv[:,0]))
     max_frame = int(np.max(max_frame))
 
-    tracker = PoseTracker(cals)
+    tracker = PoseTracker(cals, no_reid_merge=no_reid_merge)
+    if no_reid_merge:
+        print("*** ReID merge DISABLED — producing clean tracklets ***")
+        save_path = osp.join(save_dir, scene_name + "_tracklets.txt")
     box_thred = 0.3
     results = []
 
@@ -81,13 +85,12 @@ def main():
                 continue
             idx = det_sv[:,0]==frame_id
             cur_det = det_sv[idx]
-            cur_pose = pose_data[v][idx]
             cur_reid = reid_data[v][idx]
 
-            for det, pose, reid in zip(cur_det, cur_pose, cur_reid):
+            for det, reid in zip(cur_det, cur_reid):
                 if det[-1]<box_thred or len(det)==0:
                     continue
-                new_sample = Detection_Sample(bbox=det[2:],keypoints_2d=pose[6:].reshape(17,3), reid_feat=reid, cam_id = v, frame_id=frame_id)
+                new_sample = Detection_Sample(bbox=det[2:], reid_feat=reid, cam_id = v, frame_id=frame_id)
                 detection_sample_sv.append(new_sample)
             detection_sample_mv.append(detection_sample_sv)
 

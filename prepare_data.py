@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+
 import json
 import sys
 from pathlib import Path
@@ -26,7 +28,12 @@ def make_identity_calibration() -> dict[str, list[list[float]]]:
     }
 
 
-def prepare(videos_dir: Path = VIDEOS_DIR) -> None:
+def prepare(videos_dir: Path = VIDEOS_DIR, dataset_dir: Path = DATASET_DIR) -> None:
+    if dataset_dir.exists():
+        import shutil
+        shutil.rmtree(dataset_dir)
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
     video_files = sorted(
         p
         for p in videos_dir.iterdir()
@@ -41,7 +48,7 @@ def prepare(videos_dir: Path = VIDEOS_DIR) -> None:
 
     for idx, video_path in enumerate(video_files, start=1):
         cam_name = f"camera_{idx:04d}"
-        cam_dir = DATASET_DIR / cam_name
+        cam_dir = dataset_dir / cam_name
         cam_dir.mkdir(parents=True, exist_ok=True)
 
         symlink_path = cam_dir / "video.mp4"
@@ -54,8 +61,14 @@ def prepare(videos_dir: Path = VIDEOS_DIR) -> None:
 
         print(f"  {cam_name} -> {video_path.name}")
 
-    print(f"\nDataset prepared at {DATASET_DIR}")
+    print(f"\nDataset prepared at {dataset_dir}")
 
 
 if __name__ == "__main__":
-    prepare()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--videos-dir", type=str, default=str(VIDEOS_DIR))
+    parser.add_argument("--scene", type=str, default="scene_001")
+    args = parser.parse_args()
+    vdir = Path(args.videos_dir)
+    ddir = REPO_ROOT / "dataset" / "test" / args.scene
+    prepare(videos_dir=vdir, dataset_dir=ddir)

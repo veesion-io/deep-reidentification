@@ -31,9 +31,8 @@ class Track2DState:
 
 
 class Detection_Sample():
-    def __init__(self, bbox, keypoints_2d, reid_feat, cam_id, frame_id):
+    def __init__(self, bbox, reid_feat, cam_id, frame_id):
         self.bbox = bbox
-        self.keypoints_2d = keypoints_2d
         self.reid_feat=reid_feat
         self.cam_id = cam_id
         self.frame_id = frame_id
@@ -49,7 +48,6 @@ class PoseTrack2D():
             self.state.pop()
         self.state = [Track2DState.Detected]+self.state
         self.bbox = Detect_Sample.bbox
-        self.keypoints_2d = Detect_Sample.keypoints_2d
         self.reid_feat=Detect_Sample.reid_feat
         self.cam_id=Detect_Sample.cam_id
 
@@ -62,32 +60,21 @@ class PoseTrack():
         self.confirm_time_left = 0
         self.valid_views = [] # valid view input at current time step
         self.bank_size = 100
-        self.feat_bank = np.zeros((self.bank_size, 2048))
+        self.feat_bank = np.zeros((self.bank_size, 1024))
         self.feat_count = 0
         self.track2ds = [PoseTrack2D() for i in range(self.num_cam)]
-        self.num_keypoints = 17
-        self.keypoint_thrd = 0.7
         self.update_age = 0
         self.decay_weight = 0.5
-        self.keypoints_3d = np.zeros((self.num_keypoints, 4))
-        self.keypoints_mv = np.zeros((self.num_cam, self.num_keypoints, 3))
         self.bbox_mv = np.zeros((self.num_cam, 5))
-        self.age_2D = np.ones((self.num_cam, self.num_keypoints)) * np.inf
-        self.age_3D = np.ones((self.num_keypoints)) * np.inf
         self.age_bbox = np.ones((self.num_cam)) * np.inf
         self.dura_bbox = np.zeros((self.num_cam))
         self.thred_conf_reid = 0.95
-        self.feet_idx = np.array([15,16])
         self.bbox_kalman=[KalmanFilter_box() for i in range(self.num_cam)]
-        self.thred_reid = 0.5
+        self.thred_reid = 0.65
 
         self.output_cord = np.zeros(3)
-        self.output_priority = [[5,6],[11,12],[15,16]] #[3,4,5,6],[3,4,11,12],
-        self.main_joints = np.array([5,6,11,12,13,14,15,16])
-        self.upper_body = np.array([5,6,11,12])
 
         self.sample_buf = []
-        self.unit = np.full((self.num_keypoints,3), 1/np.sqrt(3))
         self.iou_mv = [0 for i in range(self.num_cam)]
         self.ovr_mv = [0 for i in range(self.num_cam)]
         self.oc_state = [False for i in range(self.num_cam)]
@@ -98,13 +85,9 @@ class PoseTrack():
         self.state = newtrack.state
         self.valid_views = newtrack.valid_views
         self.track2ds = newtrack.track2ds
-        self.age_2D = newtrack.age_2D
-        self.age_3D = newtrack.age_3D
         self.bbox_mv = newtrack.bbox_mv
         self.age_bbox = newtrack.age_bbox
         self.confirm_time_left = newtrack.confirm_time_left
-        self.keypoints_3d = newtrack.keypoints_3d
-        self.keypoints_mv = newtrack.keypoints_mv
         self.output_cord = newtrack.output_cord
         self.dura_bbox = newtrack.dura_bbox
         self.bbox_kalman=newtrack.bbox_kalman
@@ -125,8 +108,6 @@ class PoseTrack():
 
     def switch_view(self, track, v):
         self.track2ds[v], track.track2ds[v] = track.track2ds[v], self.track2ds[v]
-        self.age_2D[v], track.age_2D[v] = track.age_2D[v], self.age_2D[v]
-        self.keypoints_mv[v], track.keypoints_mv[v] = track.keypoints_mv[v], self.keypoints_mv[v]
         self.age_bbox[v], track.age_bbox[v] = track.age_bbox[v], self.age_bbox[v]
         self.bbox_mv[v], track.bbox_mv[v] = track.bbox_mv[v], self.bbox_mv[v]
         self.dura_bbox[v], track.dura_bbox[v] = track.dura_bbox[v], self.dura_bbox[v]
@@ -141,50 +122,31 @@ class PoseTrack():
 
 
     def get_output(self):
-        # 3D kp output
-
-        for comb in self.output_priority:
-            if all(self.age_3D[comb]==0):
-                self.output_cord = np.concatenate((np.mean(self.keypoints_3d[comb,:2],axis=0),[3]))
-                return self.output_cord 
-        
-        #if no 3D kp comb, choose single-view feet 
-        feet_idxs = self.output_priority[-1]
+        # --- calibration disabled: output bbox bottom-center in pixel coords ---
         for v in self.valid_views:
-            if all(self.keypoints_mv[v][feet_idxs,-1]>0.7) and all(self.age_2D[v][feet_idxs]==0):
-                 
-                feet_pos = np.mean(self.keypoints_mv[v][feet_idxs,:2], axis=0)
-                feet_homo = self.cameras[v].homo_feet_inv @ np.array([feet_pos[0],feet_pos[1],1])
-                feet_homo = feet_homo[:-1]/feet_homo[-1]
-
-                self.output_cord = np.concatenate((feet_homo,[2]))
+            if self.age_bbox[v] == 0:
+                bbox = self.bbox_mv[v]
+                cx = (bbox[0] + bbox[2]) / 2.0
+                cy = bbox[3]  # bottom of bbox
+                self.output_cord = np.array([cx, cy, 1.0])
                 return self.output_cord
 
-        # if no single-view feet, then choose bbox bottom point
-            
-        bottom_points =[]
-        for v in self.valid_views:
-            bbox = self.bbox_mv[v]
-            bp = self.cameras[v].homo_inv @ np.array([(bbox[2]+bbox[0])/2,bbox[3],1])
-            bp = bp[:-1]/bp[-1]
-            if bbox[3] > 1078:
-                bottom_points.append(bp)
-                continue
-            self.output_cord = np.concatenate((bp ,[1]))
-            
-            return self.output_cord
-            
-
-        bottom_points = np.array(bottom_points).reshape(-1,2)
-        self.output_cord = np.concatenate((np.mean(bottom_points,axis=0),[1]))
+        # fallback: use any view with a bbox
+        for v in range(self.num_cam):
+            if self.age_bbox[v] < np.inf:
+                bbox = self.bbox_mv[v]
+                cx = (bbox[0] + bbox[2]) / 2.0
+                cy = bbox[3]
+                self.output_cord = np.array([cx, cy, 1.0])
+                return self.output_cord
 
         return self.output_cord
 
 
     def single_view_init(self, detection_sample,id):
         # if initilized only with 1 view 
-        self.state = TrackState.Unconfirmed
-        self.confirm_time_left = 2
+        self.state = TrackState.Confirmed
+        self.confirm_time_left = 0
         cam_id = detection_sample.cam_id
         self.valid_views.append(cam_id)
 
@@ -192,8 +154,6 @@ class PoseTrack():
         track2d.init_with_det(detection_sample)
 
         self.bbox_mv[cam_id] = detection_sample.bbox
-        self.keypoints_mv[cam_id] = detection_sample.keypoints_2d
-        self.age_2D[cam_id][detection_sample.keypoints_2d[:,-1]>self.keypoint_thrd] = 0
         self.age_bbox[cam_id] = 0
         
         self.bbox_kalman[cam_id].update(detection_sample.bbox[:4].copy())
@@ -206,41 +166,10 @@ class PoseTrack():
         self.update_age = 0
         self.dura_bbox[cam_id] = 1
 
-    def triangulation(self, detection_sample_list):
-        keypoints_mv = np.zeros((self.num_cam, self.num_keypoints, 3))
-        keypoints_3d = np.zeros((self.num_keypoints, 4))
-
-        age_2D = np.ones((self.num_cam, self.num_keypoints)) * np.inf
-        age_3D = np.ones((self.num_keypoints)) * np.inf
-
-        for sample in detection_sample_list:
-            keypoints_mv[sample.cam_id] = sample.keypoints_2d
-
-        valid_joint_mask = (keypoints_mv[:,:,2] > self.keypoint_thrd)
-
-        for j_idx in range(self.num_keypoints):
-            if np.sum(valid_joint_mask[:,j_idx]) < 2:
-                joint_3d = np.zeros(4)
-            else:
-                A = np.zeros((2*self.num_keypoints,4))
-                for v_idx in range(self.num_cam):
-                    A[2*v_idx,:] = keypoints_mv[v_idx,j_idx,2] * (keypoints_mv[v_idx,j_idx,0] * self.cameras[v_idx].project_mat[2,:] - self.cameras[v_idx].project_mat[0,:])
-                    A[2*v_idx+1,:] = keypoints_mv[v_idx,j_idx,2] * (keypoints_mv[v_idx,j_idx,1] * self.cameras[v_idx].project_mat[2,:] - self.cameras[v_idx].project_mat[1,:])
-
-                u,sigma,vt = np.linalg.svd(A)
-                joint_3d = vt[-1]/vt[-1][-1]
-                age_3D[j_idx] = 0
-            keypoints_3d[j_idx] = joint_3d
-            age_2D[valid_joint_mask[:,j_idx]] = 0
-            
-
-        return keypoints_3d, keypoints_mv, age_3D, age_2D
-    
         
     def multi_view_init(self, detection_sample_list,id):
 
         self.state = TrackState.Confirmed
-        self.keypoints_3d, self.keypoints_mv, self.age_3D, self.age_2D = self.triangulation(detection_sample_list)
 
         for sample in detection_sample_list:
             cam_id = sample.cam_id
@@ -253,7 +182,7 @@ class PoseTrack():
             
             self.bbox_kalman[cam_id].update(sample.bbox[:4].copy())
 
-            if all(sample.keypoints_2d[self.upper_body,-1]>0.5) and sample.bbox[4]>0.9 and np.sum(self.iou_mv[cam_id]>0.15)<1 and np.sum(self.ovr_mv[cam_id]>0.3)<2:
+            if sample.bbox[4]>0.3 and np.sum(self.iou_mv[cam_id]>0.15)<1 and np.sum(self.ovr_mv[cam_id]>0.3)<2:
                 if self.feat_count:
                     bank = self.feat_bank[:self.feat_count]
                     sim = bank @ sample.reid_feat
@@ -281,10 +210,6 @@ class PoseTrack():
             self.oc_state[v] = True
             oc_idx = avail_idx[np.where((iou>0.5) | (ovr_tgt>0.5))]
             self.oc_idx[v] = list(set(self.oc_idx[v] + [i for i in oc_idx if i!=self.id]))
-            
-        valid_joints = sample.keypoints_2d[:,-1]>self.keypoint_thrd
-        self.keypoints_mv[v][valid_joints] = sample.keypoints_2d[valid_joints]
-        self.age_2D[v][valid_joints] = 0
 
         self.bbox_mv[v] = sample.bbox
         self.age_bbox[v] = 0
@@ -306,7 +231,7 @@ class PoseTrack():
             bank = self.feat_bank[:self.feat_count%self.bank_size]
 
         for v in valid_views:
-            if self.oc_state[v] and np.sum(self.iou_mv[v]>0.15)<2 and np.sum(self.ovr_tgt_mv[v]>0.3)<2 and self.bbox_mv[v][-1]>0.9:
+            if self.oc_state[v] and np.sum(self.iou_mv[v]>0.15)<2 and np.sum(self.ovr_tgt_mv[v]>0.3)<2 and self.bbox_mv[v][-1]>0.3:
                 if self.feat_count==0:
                     self.oc_state[v] = False
                     self.oc_idx[v] = []
@@ -317,7 +242,7 @@ class PoseTrack():
                 self.oc_state[v] = False
                 oc_tracks = []
                 print("self_sim",self_sim)
-                if self_sim > 0.5:
+                if self_sim > 0.65:
                     self.oc_idx[v] = []
                     continue
                 for t_id,track in enumerate(avail_tracks):
@@ -339,55 +264,12 @@ class PoseTrack():
                 print("reid_sim", reid_sim)
                 max_idx = np.argmax(reid_sim)
                 self.oc_idx[v] = []
-                if reid_sim[max_idx] > self_sim and reid_sim[max_idx]>0.5:
+                if reid_sim[max_idx] > self_sim and reid_sim[max_idx]>0.65:
                     self.switch_view(oc_tracks[max_idx], v)
                     
         
-        valid_joint_mask = (self.keypoints_mv[:,:,2] > self.keypoint_thrd) & (self.age_2D == 0)
-        corr_v= []
-
-        for j_idx in range(self.num_keypoints):
-            if np.sum(valid_joint_mask[:,j_idx]) < 2:
-                joint_3d = np.zeros(4)
-                continue
-            else:
-                A = np.zeros((2*self.num_keypoints,4))
-                for v_idx in range(self.num_cam):
-                    if valid_joint_mask[v_idx, j_idx]:
-                        A[2*v_idx,:] = self.keypoints_mv[v_idx,j_idx,2] * (self.keypoints_mv[v_idx,j_idx,0] * self.cameras[v_idx].project_mat[2,:] - self.cameras[v_idx].project_mat[0,:])
-                        A[2*v_idx+1,:] = self.keypoints_mv[v_idx,j_idx,2] * (self.keypoints_mv[v_idx,j_idx,1] * self.cameras[v_idx].project_mat[2,:] - self.cameras[v_idx].project_mat[1,:])
-
-                u,sigma,vt = np.linalg.svd(A)
-                joint_3d = vt[-1]/vt[-1][-1]
-                # false matching correction
-
-                if (joint_3d[2]<-1 or joint_3d[2]>2.5) or (j_idx in self.feet_idx and (joint_3d[2]<-1 or joint_3d[2]>1)):
-                    if np.min(self.dura_bbox[self.age_bbox==0])>=10:
-                        continue
-                    # views to be corrected are often new entering people with the minimum bbox tracking duration
-                    v_cand = [v for v in range(self.num_cam) if (self.dura_bbox[v]==np.min(self.dura_bbox[self.age_bbox==0]))]
-                        
-                    print(self.dura_bbox[self.dura_bbox>0])
-                    print(v_cand)
-                    print(j_idx, joint_3d)
-                    for v in  v_cand:
-                        if valid_joint_mask[v,j_idx]:
-
-                            
-                            self.age_bbox[v] = np.inf
-                            self.dura_bbox[v] = 0
-                            
-
-                            self.keypoints_mv[v]=0
-                            self.age_2D[v]=np.inf
-                            valid_joint_mask[v]=0
-                            corr_v.append(v)                            
-                            print("correction ","id ",self.id,"v ", v)
-
-                            break
-                    continue
-                self.age_3D[j_idx] = np.min(self.age_2D[valid_joint_mask[:,j_idx],j_idx])
-            self.keypoints_3d[j_idx] = joint_3d
+        # --- calibration disabled: skip 3D triangulation & false-match correction ---
+        corr_v = []
             
         valid_views = [v for v in range(self.num_cam) if (self.age_bbox[v]==0 and (not v in corr_v))]
         self.update_age= 0
@@ -399,7 +281,7 @@ class PoseTrack():
                 bank = self.feat_bank[:self.feat_count]
             
             sample = self.track2ds[v]
-            if all(sample.keypoints_2d[self.upper_body,-1]>0.5) and sample.bbox[4]>0.9 and np.sum(self.iou_mv[v]>0.15)<2 and np.sum(self.ovr_mv[v]>0.3)<2:
+            if sample.bbox[4]>0.3 and np.sum(self.iou_mv[v]>0.15)<2 and np.sum(self.ovr_mv[v]>0.3)<2:
                 if self.feat_count==0:
                     self.feat_bank[0] = sample.reid_feat
                     self.feat_count+=1
@@ -411,54 +293,31 @@ class PoseTrack():
 
 
         if self.state == TrackState.Unconfirmed:
-            if any(self.bbox_mv[self.age_bbox==0][:,-1]>0.9):
-                self.confirm_time_left-=1
-                if self.confirm_time_left<=0:
-                    self.state = TrackState.Confirmed
+            self.state = TrackState.Confirmed
         
         self.iou_mv = [0 for i in range(self.num_cam)]
         self.ovr_mv = [0 for i in range(self.num_cam)]
         return corr_v
 
-    def CalcTargetRays(self, v):
-        if self.age_bbox[v]>1:
-            return self.unit
-        cam = self.cameras[v]
-
-        return aic_cpp.compute_joints_rays(self.keypoints_mv[v], cam.project_inv, cam.pos)
-
-def calcRays_sv(keypoints_2d, cam):
-    joints_h = np.vstack((keypoints_2d[:,:-1].T, np.ones((1,keypoints_2d.shape[0])))) #3*n
-    joints_rays =  cam.project_inv @ joints_h
-    joints_rays /= joints_rays[-1]
-    joints_rays = joints_rays[:-1]
-    joints_rays -= np.repeat(cam.pos.reshape(3,1),keypoints_2d.shape[0], axis=1)
-    joints_rays_norm = joints_rays / (np.linalg.norm(joints_rays, axis=0)+1e-5)
-    joints_rays_norm = joints_rays_norm.T
-
-    return joints_rays_norm
 
             
 
 class PoseTracker():
-    def __init__(self,cameras):
+    def __init__(self,cameras, no_reid_merge=False):
         self.cameras = cameras
         self.num_cam = len(cameras)
         self.tracks = []
-        self.reid_thrd = 0.5
-        self.num_keypoints = 17
+        self.reid_thrd = 0.65
         self.decay_weight = 0.5
         self.thred_p2l_3d = 0.3
         self.thred_2d = 0.3
         self.thred_epi = 0.2
         self.thred_homo = 1.5
         self.thred_bbox = 0.4
-        self.keypoint_thrd = 0.7
         self.glpk_bip = GLPKSolver(min_affinity=-1e5)
-        self.main_joints = np.array([5,6,11,12,13,14,15,16])
         self.bank_size = 30
-        self.thred_reid = 0.5
-        self.upper_body = np.array([5,6,11,12])
+        self.thred_reid = 0.65
+        self.no_reid_merge = no_reid_merge
 
     def compute_reid_aff(self, detection_sample_list_mv, avail_tracks):
         reid_sim_mv = []
@@ -470,7 +329,7 @@ class PoseTracker():
             reid_weight_sv = np.zeros((len(detection_sample_list_mv[v]),n_track))+1e-5
     
             for s_id, sample in enumerate(detection_sample_list_mv[v]):
-                if sample.bbox[-1]<0.88:
+                if sample.bbox[-1]<0.3:
                     continue
                 for t_id, track in enumerate(avail_tracks):
                     if not len(track.track2ds[v].state):
@@ -488,139 +347,15 @@ class PoseTracker():
             reid_sim_mv.append(reid_sim_sv)
             reid_weight.append(reid_weight_sv)
         return reid_sim_mv,reid_weight
-    def compute_3dkp_aff(self,detection_sample_list_mv, avail_tracks):
-        aff_mv = []
-        n_track = len(avail_tracks)
-
-        for v in range(self.num_cam):
-            aff_sv = np.zeros((len(detection_sample_list_mv[v]),n_track))
-            cam = self.cameras[v]
-            for s_id, sample in enumerate(detection_sample_list_mv[v]):
-                joints_h = np.vstack((sample.keypoints_2d[:,:-1].T, np.ones((1,self.num_keypoints))))
-                joints_rays =  cam.project_inv @ joints_h
-                joints_rays /= joints_rays[-1]
-                joints_rays = joints_rays[:-1]
-                joints_rays -= np.repeat(cam.pos.reshape(3,1),self.num_keypoints, axis=1)
-                joints_rays = joints_rays / (np.linalg.norm(joints_rays, axis=0)+1e-5)
-                joints_rays = joints_rays.T # 17*3
-                for t_id, track in enumerate(avail_tracks):
-                    aff = np.zeros(self.num_keypoints)
-                    kp_3d = track.keypoints_3d
-                    k_idx = np.where(sample.keypoints_2d[:,-1] < self.keypoint_thrd)[0]
-                    
-                    aff[k_idx] = Point2LineDist(kp_3d[k_idx, :-1], cam.pos, joints_rays[k_idx])
-
-                    valid = (sample.keypoints_2d[:,-1] > self.keypoint_thrd) * (kp_3d[:,-1]>0)
-                    aff  = 1- aff/self.thred_p2l_3d
-                    aff = aff * sample.keypoints_2d[:,-1]* np.exp(-track.age_3D)
-
-                    aff_sv[s_id,t_id] = np.sum(aff)/ (np.sum(valid* np.exp(-track.age_3D))+1e-5)
-            aff_mv.append(aff_sv)
-
-        return aff_mv
-    
-    def compute_2dkp_aff(self,detection_sample_list_mv, avail_tracks):
-        aff_mv = []
-        n_track = len(avail_tracks)
-
-        for v in range(self.num_cam):
-            aff_sv = np.zeros((len(detection_sample_list_mv[v]),n_track))
-            for s_id, sample in enumerate(detection_sample_list_mv[v]):
-                joints_s = sample.keypoints_2d
-                for t_id, track in enumerate(avail_tracks):
-                    joints_t = track.keypoints_mv[v]
-
-                    dist = np.linalg.norm(joints_t[:,:-1] - joints_s[:,:-1], axis=1)
-                    aff = 1 - dist/ (self.thred_2d * (np.linalg.norm(track.bbox_mv[v][2:4] - track.bbox_mv[v][:2])+1e-5))
-                    valid = (joints_t[:,-1]> self.keypoint_thrd) * (joints_s[:,-1]> self.keypoint_thrd)
-                    aff = aff * valid * np.exp(-track.age_2D[v])
-                    
-                    aff_sv[s_id,t_id] = np.sum(aff)/(np.sum(valid*np.exp(-track.age_2D[v]))+1e-5)
-
-            aff_mv.append(aff_sv)
-
-        return aff_mv    
-    
     def compute_epi_homo_aff(self,detection_sample_list_mv, avail_tracks):
+        # --- calibration disabled: return zeros for both epipolar and homography ---
         aff_mv = []
-        aff_homo = [] 
+        aff_homo = []
         n_track = len(avail_tracks)
-        mv_rays = self.CalcJointRays(detection_sample_list_mv)
-        age_2D_thr = 1
-
-        feet_idxs = [15,16]
-
         for v in range(self.num_cam):
-            pos = self.cameras[v].pos
-            aff_sv = np.zeros((len(detection_sample_list_mv[v]),n_track))
-            cam = self.cameras[v]
-            sv_rays = mv_rays[v]
-            aff_homo_sv = np.zeros((len(detection_sample_list_mv[v]),n_track))
-
-            for s_id, sample in enumerate(detection_sample_list_mv[v]):
-                joints_s = sample.keypoints_2d
-
-                feet_valid_s = np.all(joints_s[feet_idxs,-1] > self.keypoint_thrd)
-
-                feet_s = aic_cpp.compute_feet_s(joints_s, feet_idxs, cam.homo_feet_inv)
-                box_pos_s = aic_cpp.compute_box_pos_s(sample.bbox,cam.homo_inv)
-                box_valid_s = True
-
-
-                for t_id, track in enumerate(avail_tracks):
-                    joints_t = track.keypoints_mv
-                    aff_sv[s_id,t_id], aff_homo_sv[s_id,t_id] = aic_cpp.loop_t_homo_full(
-                        joints_t,
-                        joints_s,
-                        track.age_bbox,
-                        track.age_2D,
-                        feet_s,
-                        feet_valid_s,
-                        v,
-                        self.thred_epi,
-                        self.thred_homo,
-                        self.keypoint_thrd,
-                        age_2D_thr,
-                        sv_rays[s_id],
-                        self.cameras,
-                        box_pos_s,
-                        box_valid_s,
-                        track.bbox_mv)
-                    continue
-                    aff_ss = []
-                    aff_homo_ss = []
-                    if feet_valid_s:
-                        feet_valid_t = (joints_t[:,feet_idxs[0],-1] > self.keypoint_thrd) & (joints_t[:,feet_idxs[1],-1] > self.keypoint_thrd)
-
-                    valid = (joints_t[:, :,-1]> self.keypoint_thrd) & (joints_s[:,-1]> self.keypoint_thrd)
-                    for vj in range(self.num_cam):
-
-                        if v == vj or track.age_bbox[vj]>=2:
-                            continue
-
-                        pos_j = self.cameras[vj].pos
-                        track_rays_sv = track.CalcTargetRays(vj)
-
-                        aff_temp = aic_cpp.epipolar_3d_score_norm(pos,sv_rays[s_id], pos_j, track_rays_sv, self.thred_epi)
-                        _aff_ss = aic_cpp.aff_sum(aff_temp, valid[vj], track.age_2D[vj], 1)
-                        if _aff_ss != 0:
-                            aff_ss.append(_aff_ss)
-
-                        if feet_valid_s and feet_valid_t[vj]:
-                            _aff_homo_ss = aic_cpp.compute_feet_distance(
-                                joints_t[vj], feet_idxs, self.cameras[vj].homo_feet_inv, feet_s, self.thred_homo)
-                            aff_homo_ss.append(_aff_homo_ss)
-
-
-                    aff_homo_sv[s_id,t_id] = sum(aff_homo_ss) / (len(aff_homo_ss) + 1e-5)
-                    
-
-                    aff_sv[s_id,t_id] = sum(aff_ss) / (len(aff_ss)+ 1e-5)
-
-            aff_homo.append(aff_homo_sv)
-            aff_mv.append(aff_sv)
+            aff_mv.append(np.zeros((len(detection_sample_list_mv[v]), n_track)))
+            aff_homo.append(np.zeros((len(detection_sample_list_mv[v]), n_track)))
         return aff_mv, aff_homo
-                            
 
     def compute_bboxiou_aff(self,detection_sample_list_mv,avail_tracks):
         aff_mv = []
@@ -668,27 +403,6 @@ class PoseTracker():
             aff_mv.append(iou)
         return aff_mv, iou_mv, ovr_det_mv, ovr_tgt_mv
 
-    def CalcJointRays(self,detection_sample_list_mv):
-        mv_rays = []
-        for v in range(self.num_cam):
-            cam  = self.cameras[v]
-            sv_rays = []
-            n_detect= len(detection_sample_list_mv[v])
-            sample_sv = detection_sample_list_mv[v]
-            for s_id, sample in enumerate(sample_sv):
-                joints_h = np.vstack((sample.keypoints_2d[:,:-1].T, np.ones((1,self.num_keypoints)))) #3*n
-                joints_rays =  cam.project_inv @ joints_h
-                joints_rays /= joints_rays[-1]
-                joints_rays = joints_rays[:-1]
-                joints_rays -= np.repeat(cam.pos.reshape(3,1),self.num_keypoints, axis=1)
-
-                joints_rays_norm = joints_rays / (np.linalg.norm(joints_rays, axis=0)+1e-5)
-                joints_rays_norm = joints_rays_norm.T
-                sv_rays.append(joints_rays_norm) #17*3
-            mv_rays.append(sv_rays)
-        
-        return mv_rays
-    
     def match_with_miss_tracks(self, new_track, miss_tracks):
         if len(miss_tracks)==0:
             self.tracks.append(new_track)
@@ -710,7 +424,7 @@ class PoseTracker():
         t_id = np.argmax(reid_sim)
 
         print("init reid score: ", reid_sim)
-        if reid_sim[t_id]>0.5:
+        if reid_sim[t_id]>0.65:
 
             miss_tracks[t_id].reactivate(new_track)
             print("reactivate", miss_tracks[t_id].id, miss_tracks[t_id].valid_views)
@@ -736,70 +450,22 @@ class PoseTracker():
 
         det_num = det_all_count[-1]
 
-        aff_homo = np.ones((det_num,det_num)) * (-10000)
-        aff_epi = np.ones((det_num,det_num)) * (-10000)
-
-        mv_rays = self.CalcJointRays(detection_sample_list_mv)
-        feet_idxs = [15,16]
+        # --- calibration disabled: use only ReID for cross-view init clustering ---
+        aff_reid = np.ones((det_num, det_num)) * (-np.inf)
 
         for vi in range(self.num_cam):
             samples_vi = detection_sample_list_mv[vi]
-            pos_i = self.cameras[vi].pos
-            for vj in range(vi, self.num_cam):
-                if vi==vj:
-                    continue
-                else:
-                    pos_j = self.cameras[vj].pos
-                    samples_vj = detection_sample_list_mv[vj]
+            for vj in range(vi + 1, self.num_cam):
+                samples_vj = detection_sample_list_mv[vj]
+                reid_sim_temp = np.zeros((det_count[vi], det_count[vj]))
+                for a in range(det_count[vi]):
+                    for b in range(det_count[vj]):
+                        reid_sim_temp[a, b] = samples_vi[a].reid_feat @ samples_vj[b].reid_feat
+                aff_reid[det_all_count[vi]:det_all_count[vi+1], det_all_count[vj]:det_all_count[vj+1]] = reid_sim_temp
 
-                    aff_temp = np.zeros((det_count[vi],det_count[vj]))
-                    reid_sim_temp = np.zeros((det_count[vi],det_count[vj]))
-                    aff_homo_temp = np.zeros((det_count[vi],det_count[vj]))
-                    # calculate for each det pair
-                    for a in range(det_count[vi]):
-                        sample_a = samples_vi[a]
-                        feet_valid_a = np.all(sample_a.keypoints_2d[feet_idxs,-1]>self.keypoint_thrd)
-                        if feet_valid_a:
-                            feet_a = np.mean(sample_a.keypoints_2d[feet_idxs,:-1],axis=0)
-                            feet_a = self.cameras[vi].homo_feet_inv @ np.array([feet_a[0],feet_a[1],1])
-                            feet_a = feet_a[:-1]/feet_a[-1]
-                        else:
-                            feet_a = np.array([(sample_a.bbox[0]+sample_a.bbox[0])/2, sample_a.bbox[3]])
-                            feet_a = self.cameras[vi].homo_inv @ np.array([feet_a[0],feet_a[1],1])
-                            feet_a = feet_a[:-1]/feet_a[-1]
-                        
-                        feet_valid_a = True
-                        
-                        for b in range(det_count[vj]):
-                            sample_b = samples_vj[b]
-                            aff = np.zeros(self.num_keypoints)
-                            valid_kp = (sample_a.keypoints_2d[:,-1]>self.keypoint_thrd) & (sample_b.keypoints_2d[:,-1]>self.keypoint_thrd)
-                            j_id = np.where(valid_kp)[0]
-                            aff[j_id] = epipolar_3d_score_norm(pos_i, mv_rays[vi][a][j_id,:],pos_j, mv_rays[vj][b][j_id,:], self.thred_epi)
-
-                            if feet_valid_a and np.all(sample_b.keypoints_2d[feet_idxs,-1]>self.keypoint_thrd):
-
-                                feet_b = np.mean(sample_b.keypoints_2d[feet_idxs,:-1],axis=0)
-                                feet_b = self.cameras[vj].homo_feet_inv @ np.array([feet_b[0],feet_b[1],1])
-                                feet_b = feet_b[:-1]/feet_b[-1]
-
-                                aff_homo_temp[a,b] = 1 - np.linalg.norm(feet_b - feet_a)/ self.thred_homo
-                            else:
-                                feet_b = np.array([(sample_b.bbox[0]+sample_b.bbox[0])/2, sample_b.bbox[3]])
-                                feet_b = self.cameras[vj].homo_feet_inv @ np.array([feet_b[0],feet_b[1],1])
-                                feet_b = feet_b[:-1]/feet_b[-1]
-
-                                aff_homo_temp[a,b] = 1 - np.linalg.norm(feet_b - feet_a)/ self.thred_homo
-
-                            aff_temp[a,b] = np.sum(aff* sample_a.keypoints_2d[:,-1] * sample_b.keypoints_2d[:,-1])/ (np.sum(valid_kp * sample_a.keypoints_2d[:,-1] * sample_b.keypoints_2d[:,-1])+1e-5)
-                            reid_sim_temp[a,b] = (sample_a.reid_feat @ sample_b.reid_feat )
-                    
-                    aff_epi[det_all_count[vi]:det_all_count[vi+1],det_all_count[vj]:det_all_count[vj+1]] = aff_temp
-                    aff_homo[det_all_count[vi]:det_all_count[vi+1],det_all_count[vj]:det_all_count[vj+1]] = aff_homo_temp
-
-
-        aff_final = 2*aff_epi + aff_homo
-        aff_final[aff_final<-1000] = -np.inf
+        aff_final = aff_reid
+        aff_final = np.nan_to_num(aff_final, nan=-10000.0, posinf=-10000.0, neginf=-10000.0)
+        aff_final[aff_final < -1000] = -np.inf
         
         clusters, sol_matrix = self.glpk_bip.solve(aff_final,True)
 
@@ -810,18 +476,22 @@ class PoseTracker():
                view_list, number_list = find_view_for_cluster(cluster,det_all_count)
                det = detection_sample_list_mv[view_list[0]][number_list[0]]
                
-               if det.bbox[-1]>0.9 and all(det.keypoints_2d[self.main_joints,-1]>0.5) and np.sum(iou_det_mv[view_list[0]][number_list[0]]>0.15)<1 and np.sum(ovr_det_mv[view_list[0]][number_list[0]]>0.3)<2:
+               if det.bbox[-1]>0.3 and np.sum(iou_det_mv[view_list[0]][number_list[0]]>0.15)<1 and np.sum(ovr_det_mv[view_list[0]][number_list[0]]>0.3)<2:
 
                    new_track = PoseTrack(self.cameras)
                    new_track.single_view_init(det,id=len(self.tracks)+1)
 
-                   self.match_with_miss_tracks(new_track, miss_tracks)
+                   if self.no_reid_merge:
+                       self.tracks.append(new_track)
+                       print("new init (no-merge)",new_track.id, new_track.valid_views)
+                   else:
+                       self.match_with_miss_tracks(new_track, miss_tracks)
 
             else:
                 view_list, number_list = find_view_for_cluster(cluster,det_all_count)
                 sample_list = [detection_sample_list_mv[view_list[idx]][number_list[idx]] for idx in range(len(view_list))]
                 for i, sample in enumerate(sample_list):
-                    if all(sample.keypoints_2d[self.main_joints,-1]>0.5) and sample.bbox[-1]>0.9 and np.sum(iou_det_mv[view_list[i]][number_list[i]]>0.15)<1 and np.sum(ovr_det_mv[view_list[i]][number_list[i]]>0.3)<2:
+                    if sample.bbox[-1]>0.3 and np.sum(iou_det_mv[view_list[i]][number_list[i]]>0.15)<1 and np.sum(ovr_det_mv[view_list[i]][number_list[i]]>0.3)<2:
                         new_track = PoseTrack(self.cameras)
                         for j in range(len(view_list)):
                             new_track.iou_mv[view_list[j]] = iou_det_mv[view_list[j]][number_list[j]]
@@ -829,7 +499,11 @@ class PoseTracker():
                             new_track.ovr_tgt_mv[view_list[j]] = ovr_tgt_mv[view_list[j]][number_list[j]]
 
                         new_track.multi_view_init(sample_list, id=len(self.tracks)+1)
-                        self.match_with_miss_tracks(new_track, miss_tracks)
+                        if self.no_reid_merge:
+                            self.tracks.append(new_track)
+                            print("new init (no-merge)",new_track.id, new_track.valid_views)
+                        else:
+                            self.match_with_miss_tracks(new_track, miss_tracks)
                         
                         break
     
@@ -845,9 +519,9 @@ class PoseTracker():
         um_ovr_det_mv = []
         um_ovr_tgt_mv = []
 
-        a_epi= 1
+        a_epi= 0  # calibration disabled
         a_box = 5
-        a_homo = 1
+        a_homo = 0  # calibration disabled
         a_reid=5
         
         # vide the valid view list
@@ -889,6 +563,7 @@ class PoseTracker():
             sample_list_sv = detection_sample_list_mv[v]
 
             aff_final[aff_final<0] =0
+            aff_final = np.nan_to_num(aff_final, nan=0.0, posinf=0.0, neginf=0.0)
 
             row_idxs, col_idxs = linear_sum_assignment(-aff_final)
             
@@ -969,13 +644,9 @@ class PoseTracker():
                 if track.age_bbox[i]>=15:
                     track.bbox_kalman[i]=KalmanFilter_box()
 
-            track.age_2D[track.age_2D>=3] = np.inf
-            track.age_3D[track.age_3D>=3] = np.inf
             track.age_bbox[track.age_bbox>=15] = np.inf
             track.dura_bbox[track.age_bbox>=15] = 0
 
-            track.age_2D +=1
-            track.age_3D +=1
             track.age_bbox +=1
             track.update_age +=1
             if track.state  == TrackState.Confirmed:

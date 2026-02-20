@@ -34,7 +34,7 @@ class _BIPSolver:
 
         if len(objective_coefficients) == 0:  # nio unfrozen edges
             objective_coefficients = np.asarray([affinity_matrix[0, -1]])
-            unfrozen_mask = np.zeros_like(unfrozen_mask, dtype=np.bool)
+            unfrozen_mask = np.zeros_like(unfrozen_mask, dtype=bool)
             unfrozen_mask[affinity_matrix.shape[1] - 1] = 1
 
         # create matrix whose rows are the indices of the three edges in a
@@ -95,7 +95,7 @@ class _BIPSolver:
         constraints_coefficients[:, 2] = -1
 
         # generate constraint upper bounds
-        upper_bounds = np.ones(len(constraints_coefficients), dtype=np.float)
+        upper_bounds = np.ones(len(constraints_coefficients), dtype=np.float64)
         upper_bounds -= np.sum(
             constraints_coefficients * (constraints_edges_idx == FROZEN_POS_EDGE),
             axis=1,
